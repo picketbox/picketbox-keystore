@@ -36,7 +36,7 @@ public class KeyStoreDBUtil {
 
     private Connection con = null;
 
-    private String certTableName, keyTableName, chainTableName;
+    private String storeTableName;
 
     public KeyStoreDBUtil() {
         try {
@@ -53,9 +53,7 @@ public class KeyStoreDBUtil {
             con = DriverManager.getConnection(properties.getProperty("connection.url"),
                     properties.getProperty("connection.username"), properties.getProperty("connection.password"));
 
-            certTableName = properties.getProperty("certificates.table");
-            keyTableName = properties.getProperty("keys.table");
-            chainTableName = properties.getProperty("chain.table");
+            storeTableName = properties.getProperty("store.table");
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -70,15 +68,7 @@ public class KeyStoreDBUtil {
         return con;
     }
 
-    public String getCertificateTableName() {
-        return certTableName;
-    }
-
-    public String getKeysTableName() {
-        return keyTableName;
-    }
-
-    public String getChainTableName() {
-        return chainTableName;
+    public String getStoreTableName() {
+        return storeTableName;
     }
 }

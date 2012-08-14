@@ -58,21 +58,17 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
     private Connection con = null;
 
-    private String certTableName = null;
-
-    private String keyTableName = null;
-
-    private String chainTableName = null;
+    private String storeTableName = null;
 
     @Override
     public Key engineGetKey(String alias, char[] password) throws NoSuchAlgorithmException, UnrecoverableKeyException {
         try {
-            String selectSQL = "SELECT VALUE FROM " + keyTableName + " WHERE ID = ?";
+            String selectSQL = "SELECT KEY FROM " + storeTableName + " WHERE ID = ?";
             PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
             preparedStatement.setString(1, alias);
             ResultSet rs = preparedStatement.executeQuery();
             while (rs.next()) {
-                String certString = rs.getString("VALUE");
+                String certString = rs.getString("KEY");
                 byte[] keyBytes = Base64.decode(certString);
                 ObjectInputStream oos = new ObjectInputStream(new ByteArrayInputStream(keyBytes));
                 return (Key) oos.readObject();
@@ -86,12 +82,12 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
     @Override
     public Certificate[] engineGetCertificateChain(String alias) {
         try {
-            String selectSQL = "SELECT VALUE FROM " + chainTableName + " WHERE ID = ?";
+            String selectSQL = "SELECT CHAIN FROM " + storeTableName + " WHERE ID = ?";
             PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
             preparedStatement.setString(1, alias);
             ResultSet rs = preparedStatement.executeQuery();
             while (rs.next()) {
-                String certString = rs.getString("VALUE");
+                String certString = rs.getString("CHAIN");
                 byte[] cert = Base64.decode(certString);
                 ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(cert));
                 return (Certificate[]) ois.readObject();
@@ -105,12 +101,12 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
     @Override
     public Certificate engineGetCertificate(String alias) {
         try {
-            String selectSQL = "SELECT VALUE FROM " + certTableName + " WHERE ID = ?";
+            String selectSQL = "SELECT CERT FROM " + storeTableName + " WHERE ID = ?";
             PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
             preparedStatement.setString(1, alias);
             ResultSet rs = preparedStatement.executeQuery();
             while (rs.next()) {
-                String certString = rs.getString("VALUE");
+                String certString = rs.getString("CERT");
                 byte[] cert = Base64.decode(certString);
                 CertificateFactory fact = CertificateFactory.getInstance("x509");
                 return fact.generateCertificate(new ByteArrayInputStream(cert));
@@ -123,7 +119,20 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
     @Override
     public Date engineGetCreationDate(String alias) {
-        throw new RuntimeException();
+        try {
+            String selectSQL = "SELECT CREATED FROM " + storeTableName + " WHERE ID = ?";
+            PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
+            preparedStatement.setString(1, alias);
+            ResultSet rs = preparedStatement.executeQuery();
+            while (rs.next()) {
+                String dateString = rs.getString("CREATED");
+                long timeValue = Long.parseLong(dateString);
+                return new Date(timeValue);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return null;
     }
 
     @Override
@@ -137,10 +146,20 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
         try {
             String encodedKey = Base64.encodeBytes(key);
 
-            String insertTableSQL = "INSERT INTO KEYS" + "(ID,VALUE) VALUES" + "(?,?)";
+            String insertTableSQL = "INSERT INTO " + storeTableName + "(ID,KEY,CREATED) VALUES" + "(?,?,?)";
+            boolean rowExists = checkRowExists(alias);
+
+            String thirdIndex = (new Date()).getTime() + "";
+
+            if (rowExists) {
+                insertTableSQL = "UPDATE " + storeTableName + " SET ID= ? , KEY = ?  WHERE ID = ?";
+                thirdIndex = alias;
+            }
+
             preparedStatement = con.prepareStatement(insertTableSQL);
-            preparedStatement.setString(1, "test");
+            preparedStatement.setString(1, alias);
             preparedStatement.setString(2, encodedKey);
+            preparedStatement.setString(3, thirdIndex);
             preparedStatement.executeUpdate();
 
             preparedStatement.close();
@@ -160,10 +179,19 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
         try {
             String encodedCert = Base64.encodeBytes(cert.getEncoded());
 
-            String insertTableSQL = "INSERT INTO CERT" + "(ID,VALUE) VALUES" + "(?,?)";
+            String insertTableSQL = "INSERT INTO " + storeTableName + "(ID,CERT,CREATED) VALUES" + "(?,?,?)";
+
+            String thirdIndex = (new Date()).getTime() + "";
+
+            boolean rowExists = checkRowExists(alias);
+            if (rowExists) {
+                insertTableSQL = "UPDATE " + storeTableName + " SET ID= ? , CERT = ?  WHERE ID = ?";
+                thirdIndex = alias;
+            }
             preparedStatement = con.prepareStatement(insertTableSQL);
-            preparedStatement.setString(1, "test");
+            preparedStatement.setString(1, alias);
             preparedStatement.setString(2, encodedCert);
+            preparedStatement.setString(3, thirdIndex);
             preparedStatement.executeUpdate();
 
             preparedStatement.close();
@@ -200,7 +228,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
     @Override
     public boolean engineIsKeyEntry(String alias) {
         try {
-            String selectSQL = "SELECT VALUE FROM " + keyTableName + " WHERE ID = ?";
+            String selectSQL = "SELECT KEY FROM " + storeTableName + " WHERE ID = ?";
             PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
             preparedStatement.setString(1, alias);
             ResultSet rs = preparedStatement.executeQuery();
@@ -216,7 +244,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
     @Override
     public boolean engineIsCertificateEntry(String alias) {
         try {
-            String selectSQL = "SELECT VALUE FROM " + certTableName + " WHERE ID = ?";
+            String selectSQL = "SELECT CERT FROM " + storeTableName + " WHERE ID = ?";
             PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
             preparedStatement.setString(1, alias);
             ResultSet rs = preparedStatement.executeQuery();
@@ -251,9 +279,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
     private void loadDatabase() {
         KeyStoreDBUtil util = new KeyStoreDBUtil();
         con = util.getConnection();
-        certTableName = util.getCertificateTableName();
-        keyTableName = util.getKeysTableName();
-        chainTableName = util.getChainTableName();
+        storeTableName = util.getStoreTableName();
     }
 
     private void safeClose(Statement stmt) {
@@ -274,10 +300,20 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
             String encodedChain = Base64.encodeBytes(baos.toByteArray());
 
-            String insertTableSQL = "INSERT INTO CHAIN" + "(ID,VALUE) VALUES" + "(?,?)";
+            String insertTableSQL = "INSERT INTO " + storeTableName + "(ID,CHAIN,CREATED) VALUES" + "(?,?,?)";
+
+            String thirdIndex = (new Date()).getTime() + "";
+
+            boolean rowExists = checkRowExists(alias);
+
+            if (rowExists) {
+                insertTableSQL = "UPDATE " + storeTableName + " SET ID= ? , CHAIN = ?  WHERE ID = ?";
+                thirdIndex = alias;
+            }
             preparedStatement = con.prepareStatement(insertTableSQL);
-            preparedStatement.setString(1, "test");
+            preparedStatement.setString(1, alias);
             preparedStatement.setString(2, encodedChain);
+            preparedStatement.setString(3, thirdIndex);
             preparedStatement.executeUpdate();
 
             preparedStatement.close();
@@ -287,7 +323,21 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             if (preparedStatement != null) {
                 safeClose(preparedStatement);
             }
-
         }
+    }
+
+    private boolean checkRowExists(String alias) throws Exception {
+        try {
+            String selectSQL = "SELECT ID FROM " + storeTableName + " WHERE ID = ?";
+            PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
+            preparedStatement.setString(1, alias);
+            ResultSet rs = preparedStatement.executeQuery();
+            while (rs.next()) {
+                return true; // Atleast one entry
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return false;
     }
 }

@@ -42,6 +42,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.util.Date;
 
 import org.junit.After;
 import org.junit.Before;
@@ -122,6 +123,10 @@ public class PicketBoxDBKeyStoreTestCase {
 
     private Connection con = null;
 
+    private Date date = null;
+
+    private String alias = "test";
+
     @Before
     public void setup() throws Exception {
         // Load the Driver class.
@@ -142,25 +147,22 @@ public class PicketBoxDBKeyStoreTestCase {
 
         String encodedCert = Base64.encodeBytes(cert.getEncoded());
 
-        String insertTableSQL = "INSERT INTO CERT" + "(ID,VALUE) VALUES" + "(?,?)";
-        PreparedStatement preparedStatement = con.prepareStatement(insertTableSQL);
-        preparedStatement.setString(1, "test");
-        preparedStatement.setString(2, encodedCert);
-        // execute insert SQL stetement
-        preparedStatement.executeUpdate();
-
-        preparedStatement.close();
-
         PrivateKey key = getPrivateKey();
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ObjectOutputStream oos = new ObjectOutputStream(baos);
         oos.writeObject(key);
 
-        insertTableSQL = "INSERT INTO KEYS" + "(ID,VALUE) VALUES" + "(?,?)";
-        preparedStatement = con.prepareStatement(insertTableSQL);
-        preparedStatement.setString(1, "test");
+        date = new Date();
+
+        String insertTableSQL = "INSERT INTO STORE" + "(ID,KEY,CERT,CREATED) VALUES" + "(?,?,?,?)";
+
+        PreparedStatement preparedStatement = con.prepareStatement(insertTableSQL);
+        preparedStatement.setString(1, alias);
         preparedStatement.setString(2, Base64.encodeBytes(baos.toByteArray()));
+        preparedStatement.setString(3, encodedCert);
+        preparedStatement.setString(4, date.getTime() + "");
+
         // execute insert SQL stetement
         preparedStatement.executeUpdate();
 
@@ -184,14 +186,14 @@ public class PicketBoxDBKeyStoreTestCase {
 
         keystore.load(null, null);
 
-        Certificate cert = keystore.getCertificate("test");
+        Certificate cert = keystore.getCertificate(alias);
         assertNotNull(cert);
         X509Certificate x509 = (X509Certificate) cert;
         assertEquals("CN=jbid test, OU=JBoss, O=JBoss, C=US", x509.getSubjectDN().getName());
 
-        assertTrue(keystore.isCertificateEntry("test"));
+        assertTrue(keystore.isCertificateEntry(alias));
 
-        assertNotNull(keystore.getKey("test", null));
+        assertNotNull(keystore.getKey(alias, null));
 
         // Let us add certificate chain
         Certificate[] chain = new Certificate[1];
@@ -203,11 +205,14 @@ public class PicketBoxDBKeyStoreTestCase {
         ObjectOutputStream oos = new ObjectOutputStream(baos);
         oos.writeObject(key);
 
-        keystore.setKeyEntry("test", baos.toByteArray(), chain);
+        keystore.setKeyEntry(alias, baos.toByteArray(), chain);
 
-        Certificate[] returnedChain = keystore.getCertificateChain("test");
+        Certificate[] returnedChain = keystore.getCertificateChain(alias);
         assertNotNull(returnedChain);
         assertTrue(byteEquals(x509.getEncoded(), chain[0].getEncoded()));
+
+        Date created = keystore.getCreationDate(alias);
+        assertEquals(date, created);
     }
 
     private RSAPrivateKey getPrivateKey() throws Exception {
@@ -221,16 +226,13 @@ public class PicketBoxDBKeyStoreTestCase {
 
     private void createTables() throws Exception {
         assertNotNull(con);
-        execute(con, "create table CERT (ID varchar(255), VALUE varchar(5000))");
-        execute(con, "create table KEYS (ID varchar(255), VALUE varchar(5000))");
-        execute(con, "create table CHAIN (ID varchar(255), VALUE varchar(5000))");
+        execute(con,
+                "create table STORE (ID varchar(255), KEY varchar(5000), CERT varchar(5000), CHAIN varchar(15000), CREATED varchar(250))");
     }
 
     private void dropTables() throws Exception {
         assertNotNull(con);
-        execute(con, "drop table CERT IF EXISTS");
-        execute(con, "drop table KEYS IF EXISTS");
-        execute(con, "drop table CHAIN IF EXISTS");
+        execute(con, "drop table STORE IF EXISTS");
     }
 
     private void execute(Connection con, String str) throws Exception {
