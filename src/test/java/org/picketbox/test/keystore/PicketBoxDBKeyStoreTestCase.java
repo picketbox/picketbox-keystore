@@ -29,10 +29,12 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.ObjectOutputStream;
 import java.math.BigInteger;
+import java.security.Key;
 import java.security.KeyFactory;
 import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.Provider;
+import java.security.UnrecoverableKeyException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
@@ -50,6 +52,7 @@ import org.junit.Test;
 import org.picketbox.keystore.PicketBoxDBKeyStore;
 import org.picketbox.keystore.PicketBoxKeyStoreDBProvider;
 import org.picketbox.keystore.util.Base64;
+import org.picketbox.keystore.util.KeyStoreDBUtil;
 
 /**
  * Unit test the {@link PicketBoxDBKeyStore}
@@ -127,6 +130,12 @@ public class PicketBoxDBKeyStoreTestCase {
 
     private String alias = "test";
 
+    private String masterPass = "master";
+
+    private String salt = "thisIsSalt";
+
+    private String keyPass = "keypass";
+
     @Before
     public void setup() throws Exception {
         // Load the Driver class.
@@ -155,13 +164,25 @@ public class PicketBoxDBKeyStoreTestCase {
 
         date = new Date();
 
-        String insertTableSQL = "INSERT INTO STORE" + "(ID,KEY,CERT,CREATED) VALUES" + "(?,?,?,?)";
+        String insertTableSQL = "INSERT INTO STORE" + "(ID,KEY,CERT,KEYPASS,CREATED) VALUES" + "(?,?,?,?,?)";
 
         PreparedStatement preparedStatement = con.prepareStatement(insertTableSQL);
         preparedStatement.setString(1, alias);
         preparedStatement.setString(2, Base64.encodeBytes(baos.toByteArray()));
         preparedStatement.setString(3, encodedCert);
-        preparedStatement.setString(4, date.getTime() + "");
+        preparedStatement.setString(4, KeyStoreDBUtil.saltedHmacMD5(salt, keyPass.getBytes()));
+        preparedStatement.setString(5, date.getTime() + "");
+
+        // execute insert SQL stetement
+        preparedStatement.executeUpdate();
+
+        preparedStatement.close();
+
+        insertTableSQL = "INSERT INTO METADATA" + "(SALT,PASS) VALUES" + "(?,?)";
+
+        preparedStatement = con.prepareStatement(insertTableSQL);
+        preparedStatement.setString(1, salt);
+        preparedStatement.setString(2, KeyStoreDBUtil.saltedHmacMD5(salt, masterPass.getBytes()));
 
         // execute insert SQL stetement
         preparedStatement.executeUpdate();
@@ -177,6 +198,10 @@ public class PicketBoxDBKeyStoreTestCase {
         }
     }
 
+    /**
+     * Test the keystore
+     * @throws Exception
+     */
     @Test
     public void testKeystore() throws Exception {
         Provider provider = new PicketBoxKeyStoreDBProvider("PicketBox/Keystore", 1.0, "KeyStore by PicketBox");
@@ -184,7 +209,7 @@ public class PicketBoxDBKeyStoreTestCase {
         KeyStore keystore = KeyStore.getInstance(KeyStore.getDefaultType(), provider);
         assertNotNull(keystore);
 
-        keystore.load(null, null);
+        keystore.load(null, masterPass.toCharArray());
 
         Certificate cert = keystore.getCertificate(alias);
         assertNotNull(cert);
@@ -193,7 +218,7 @@ public class PicketBoxDBKeyStoreTestCase {
 
         assertTrue(keystore.isCertificateEntry(alias));
 
-        assertNotNull(keystore.getKey(alias, null));
+        assertNotNull(keystore.getKey(alias, keyPass.toCharArray()));
 
         // Let us add certificate chain
         Certificate[] chain = new Certificate[1];
@@ -205,14 +230,76 @@ public class PicketBoxDBKeyStoreTestCase {
         ObjectOutputStream oos = new ObjectOutputStream(baos);
         oos.writeObject(key);
 
-        keystore.setKeyEntry(alias, baos.toByteArray(), chain);
+        keystore.setKeyEntry(alias, key, keyPass.toCharArray(), chain);
 
         Certificate[] returnedChain = keystore.getCertificateChain(alias);
         assertNotNull(returnedChain);
         assertTrue(byteEquals(x509.getEncoded(), chain[0].getEncoded()));
 
+        // Check the creation date
         Date created = keystore.getCreationDate(alias);
         assertEquals(date, created);
+
+        // Check the size of the keystore
+        assertEquals(1, keystore.size());
+
+        // Check the alias stored for the x509 certificate
+        assertEquals(alias, keystore.getCertificateAlias(x509));
+
+        // Check the stored key
+        Key returnedKey = keystore.getKey(alias, keyPass.toCharArray());
+        assertTrue(byteEquals(key.getEncoded(), returnedKey.getEncoded()));
+    }
+
+    /**
+     * Ensure we check against Null KeyStore Password
+     *
+     * @throws Exception
+     */
+    @Test(expected = IllegalArgumentException.class)
+    public void testNullKeyStorePassword() throws Exception {
+
+        Provider provider = new PicketBoxKeyStoreDBProvider("PicketBox/Keystore", 1.0, "KeyStore by PicketBox");
+
+        KeyStore keystore = KeyStore.getInstance(KeyStore.getDefaultType(), provider);
+        assertNotNull(keystore);
+
+        keystore.load(null, null);
+    }
+
+    /**
+     * Ensure we check against Bad KeyStore Password
+     *
+     * @throws Exception
+     */
+    @Test(expected = RuntimeException.class)
+    public void testBadKeyStorePassword() throws Exception {
+
+        Provider provider = new PicketBoxKeyStoreDBProvider("PicketBox/Keystore", 1.0, "KeyStore by PicketBox");
+
+        KeyStore keystore = KeyStore.getInstance(KeyStore.getDefaultType(), provider);
+        assertNotNull(keystore);
+
+        keystore.load(null, "bad".toCharArray());
+    }
+
+    /**
+     * Ensure we check against bad Key Password
+     *
+     * @throws Exception
+     */
+    @Test(expected = UnrecoverableKeyException.class)
+    public void testBadKeyPassword() throws Exception {
+
+        Provider provider = new PicketBoxKeyStoreDBProvider("PicketBox/Keystore", 1.0, "KeyStore by PicketBox");
+
+        KeyStore keystore = KeyStore.getInstance(KeyStore.getDefaultType(), provider);
+        assertNotNull(keystore);
+
+        keystore.load(null, masterPass.toCharArray());
+
+        // Test a key
+        keystore.getKey(alias, "bad".toCharArray());
     }
 
     private RSAPrivateKey getPrivateKey() throws Exception {
@@ -227,12 +314,14 @@ public class PicketBoxDBKeyStoreTestCase {
     private void createTables() throws Exception {
         assertNotNull(con);
         execute(con,
-                "create table STORE (ID varchar(255), KEY varchar(5000), CERT varchar(5000), CHAIN varchar(15000), CREATED varchar(250))");
+                "create table STORE (ID varchar(255), KEY varchar(5000), CERT varchar(5000), CHAIN varchar(15000), KEYPASS varchar(150), CREATED varchar(250))");
+        execute(con, "create table METADATA (SALT varchar(255), PASS varchar(5000))");
     }
 
     private void dropTables() throws Exception {
         assertNotNull(con);
         execute(con, "drop table STORE IF EXISTS");
+        execute(con, "drop table METADATA IF EXISTS");
     }
 
     private void execute(Connection con, String str) throws Exception {

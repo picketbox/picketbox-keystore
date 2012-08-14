@@ -43,6 +43,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Date;
 import java.util.Enumeration;
+import java.util.Vector;
 
 import org.picketbox.keystore.util.Base64;
 import org.picketbox.keystore.util.KeyStoreDBUtil;
@@ -58,24 +59,35 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
     private Connection con = null;
 
-    private String storeTableName = null;
+    private String storeTableName = null, metadataTableName = null;
 
     @Override
     public Key engineGetKey(String alias, char[] password) throws NoSuchAlgorithmException, UnrecoverableKeyException {
+
         try {
+            if (matchKeyPass(alias, password) == false) {
+                throw new UnrecoverableKeyException("Key Password does not match");
+            }
             String selectSQL = "SELECT KEY FROM " + storeTableName + " WHERE ID = ?";
             PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
             preparedStatement.setString(1, alias);
             ResultSet rs = preparedStatement.executeQuery();
             while (rs.next()) {
-                String certString = rs.getString("KEY");
-                byte[] keyBytes = Base64.decode(certString);
+                String keyString = rs.getString("KEY");
+                byte[] keyBytes = Base64.decode(keyString);
                 ObjectInputStream oos = new ObjectInputStream(new ByteArrayInputStream(keyBytes));
                 return (Key) oos.readObject();
             }
-        } catch (Exception e) {
+        } catch (KeyStoreException e) {
+            throw new RuntimeException(e);
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } catch (ClassNotFoundException e) {
             throw new RuntimeException(e);
         }
+
         return null;
     }
 
@@ -137,7 +149,16 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
     @Override
     public void engineSetKeyEntry(String alias, Key key, char[] password, Certificate[] chain) throws KeyStoreException {
-        engineSetKeyEntry(alias, key.getEncoded(), chain);
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ObjectOutputStream oos = new ObjectOutputStream(baos);
+            oos.writeObject(key);
+
+            engineSetKeyEntry(alias, baos.toByteArray(), chain);
+            storeKeyPass(alias, password);
+        } catch (IOException e) {
+            throw new KeyStoreException(e);
+        }
     }
 
     @Override
@@ -207,22 +228,70 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
     @Override
     public void engineDeleteEntry(String alias) throws KeyStoreException {
+        try {
+            if (!checkRowExists(alias))
+                return;
+        } catch (Exception e1) {
+            throw new RuntimeException(e1);
+        }
+        String insertTableSQL = "UPDATE " + storeTableName + " SET ID= ? , KEY = ?  WHERE ID = ?";
+        PreparedStatement preparedStatement = null;
+        try {
+            preparedStatement = con.prepareStatement(insertTableSQL);
+            preparedStatement.setString(1, alias);
+            preparedStatement.setString(2, "");
+            preparedStatement.setString(3, alias);
+            preparedStatement.executeUpdate();
+
+            preparedStatement.close();
+        } catch (Exception e) {
+            throw new KeyStoreException(e);
+        } finally {
+            if (preparedStatement != null) {
+                safeClose(preparedStatement);
+            }
+        }
         throw new RuntimeException();
     }
 
     @Override
     public Enumeration<String> engineAliases() {
-        throw new RuntimeException();
+        Vector<String> vect = new Vector<String>();
+        try {
+            String selectSQL = "SELECT ID FROM " + storeTableName;
+            Statement stat = con.createStatement();
+            ResultSet rs = stat.executeQuery(selectSQL);
+            while (rs.next()) {
+                vect.add(rs.getString(1));
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return vect.elements();
     }
 
     @Override
     public boolean engineContainsAlias(String alias) {
-        throw new RuntimeException();
+        try {
+            return checkRowExists(alias);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
     public int engineSize() {
-        throw new RuntimeException();
+        try {
+            String selectSQL = "SELECT COUNT(*) FROM " + storeTableName;
+            Statement stat = con.createStatement();
+            ResultSet rs = stat.executeQuery(selectSQL);
+            while (rs.next()) {
+                return rs.getInt(1);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return 0;
     }
 
     @Override
@@ -259,7 +328,20 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
     @Override
     public String engineGetCertificateAlias(Certificate cert) {
-        throw new RuntimeException();
+        try {
+            String selectSQL = "SELECT ID FROM " + storeTableName + " WHERE CERT = ?";
+            PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
+            String encoded = Base64.encodeBytes(cert.getEncoded());
+
+            preparedStatement.setString(1, encoded);
+            ResultSet rs = preparedStatement.executeQuery();
+            while (rs.next()) {
+                return rs.getString("ID");
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return null;
     }
 
     @Override
@@ -272,14 +354,33 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
     public void engineLoad(InputStream stream, char[] password) throws IOException, NoSuchAlgorithmException,
             CertificateException {
         if (con == null) {
-            loadDatabase();
+            loadDatabase(password);
         }
     }
 
-    private void loadDatabase() {
+    private void loadDatabase(char[] password) {
+        if (password == null) {
+            throw new IllegalArgumentException("KeyStore Password is null");
+        }
         KeyStoreDBUtil util = new KeyStoreDBUtil();
         con = util.getConnection();
         storeTableName = util.getStoreTableName();
+        metadataTableName = util.getMetadataTableName();
+
+        // Let us evaluate the password
+        String salt = getSalt();
+        if (salt == null)
+            throw new RuntimeException("Salt is null");
+
+        try {
+            String saltedPassword = KeyStoreDBUtil.saltedHmacMD5(salt, (new String(password)).getBytes());
+            if (saltedPassword.equals(getMasterPassword()) == false) {
+                throw new RuntimeException("The master password does not match");
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
     }
 
     private void safeClose(Statement stmt) {
@@ -289,6 +390,34 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             } catch (SQLException ignore) {
             }
         }
+    }
+
+    private String getSalt() {
+        try {
+            String selectSQL = "SELECT SALT FROM " + metadataTableName;
+            Statement statement = con.createStatement();
+            ResultSet rs = statement.executeQuery(selectSQL);
+            while (rs.next()) {
+                return rs.getString("SALT");
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return null;
+    }
+
+    private String getMasterPassword() {
+        try {
+            String selectSQL = "SELECT PASS FROM " + metadataTableName;
+            Statement statement = con.createStatement();
+            ResultSet rs = statement.executeQuery(selectSQL);
+            while (rs.next()) {
+                return rs.getString("PASS");
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return null;
     }
 
     private void storeCertificateChain(String alias, Certificate[] chain) throws KeyStoreException {
@@ -314,6 +443,50 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             preparedStatement.setString(1, alias);
             preparedStatement.setString(2, encodedChain);
             preparedStatement.setString(3, thirdIndex);
+            preparedStatement.executeUpdate();
+
+            preparedStatement.close();
+        } catch (Exception e) {
+            throw new KeyStoreException(e);
+        } finally {
+            if (preparedStatement != null) {
+                safeClose(preparedStatement);
+            }
+        }
+    }
+
+    private boolean matchKeyPass(String alias, char[] keypass) throws KeyStoreException {
+        try {
+            String salt = getSalt();
+            String selectSQL = "SELECT KEYPASS FROM " + storeTableName + " WHERE ID =?";
+            PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
+            preparedStatement.setString(1, alias);
+            ResultSet rs = preparedStatement.executeQuery();
+            while (rs.next()) {
+                String storedPass = rs.getString("KEYPASS");
+                if (storedPass == null)
+                    return false;
+                return storedPass.equals(KeyStoreDBUtil.saltedHmacMD5(salt, (new String(keypass)).getBytes())); // Atleast one
+                                                                                                                // entry
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return false;
+    }
+
+    private void storeKeyPass(String alias, char[] keypass) throws KeyStoreException {
+        PreparedStatement preparedStatement = null;
+        try {
+            String salt = getSalt();
+
+            String encodedPass = KeyStoreDBUtil.saltedHmacMD5(salt, (new String(keypass).getBytes()));
+
+            String insertTableSQL = "UPDATE " + storeTableName + " SET KEYPASS = ? WHERE ID=?";
+
+            preparedStatement = con.prepareStatement(insertTableSQL);
+            preparedStatement.setString(1, encodedPass);
+            preparedStatement.setString(2, alias);
             preparedStatement.executeUpdate();
 
             preparedStatement.close();

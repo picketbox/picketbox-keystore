@@ -22,6 +22,10 @@
 package org.picketbox.keystore.util;
 
 import java.io.InputStream;
+import java.math.BigInteger;
+import java.security.InvalidKeyException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.util.Properties;
@@ -36,7 +40,7 @@ public class KeyStoreDBUtil {
 
     private Connection con = null;
 
-    private String storeTableName;
+    private String storeTableName, metadataTableName;
 
     private static final String PROPFILE = "picketbox-keystore-db.properties";
 
@@ -56,9 +60,23 @@ public class KeyStoreDBUtil {
                     properties.getProperty("connection.username"), properties.getProperty("connection.password"));
 
             storeTableName = properties.getProperty("store.table");
+            metadataTableName = properties.getProperty("metadata.table");
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public static String saltedHmacMD5(String salt, byte[] data) throws InvalidKeyException, NoSuchAlgorithmException {
+        // Create MessageDigest object for MD5
+        MessageDigest digest = MessageDigest.getInstance("MD5");
+
+        // Update input string in message digest
+        digest.update(data, 0, data.length);
+
+        // Converts message digest value in base 16 (hex)
+        String md5 = new BigInteger(1, digest.digest()).toString(16);
+
+        return md5 + salt;
     }
 
     /**
@@ -72,5 +90,9 @@ public class KeyStoreDBUtil {
 
     public String getStoreTableName() {
         return storeTableName;
+    }
+
+    public String getMetadataTableName() {
+        return metadataTableName;
     }
 }
