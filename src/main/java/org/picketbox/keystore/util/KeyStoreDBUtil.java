@@ -38,9 +38,11 @@ public class KeyStoreDBUtil {
 
     private String storeTableName;
 
+    private static final String PROPFILE = "picketbox-keystore-db.properties";
+
     public KeyStoreDBUtil() {
         try {
-            InputStream is = getClass().getClassLoader().getResourceAsStream("picketbox-keystore-db.properties");
+            InputStream is = getClass().getClassLoader().getResourceAsStream(PROPFILE);
             // We just load a custom properties or xml file
             Properties properties = new Properties();
             properties.load(is);
