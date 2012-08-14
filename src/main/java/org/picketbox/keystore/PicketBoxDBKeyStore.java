@@ -128,7 +128,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
     @Override
     public void engineSetKeyEntry(String alias, Key key, char[] password, Certificate[] chain) throws KeyStoreException {
-        throw new RuntimeException();
+        engineSetKeyEntry(alias, key.getEncoded(), chain);
     }
 
     @Override
