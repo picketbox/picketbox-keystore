@@ -147,8 +147,6 @@ public class PicketBoxDBKeyStoreTestCase {
         X509Certificate cert = (X509Certificate) cf.generateCertificate(bis);
         bis.close();
 
-        stmt = con.createStatement();
-
         String encodedCert = Base64.encodeBytes(cert.getEncoded());
 
         String insertTableSQL = "INSERT INTO CERT" + "(ID,VALUE) VALUES" + "(?,?)";
@@ -158,9 +156,7 @@ public class PicketBoxDBKeyStoreTestCase {
         // execute insert SQL stetement
         preparedStatement.executeUpdate();
 
-        stmt.close();
-
-        stmt = con.createStatement();
+        preparedStatement.close();
 
         PrivateKey key = getPrivateKey();
 
@@ -175,7 +171,7 @@ public class PicketBoxDBKeyStoreTestCase {
         // execute insert SQL stetement
         preparedStatement.executeUpdate();
 
-        stmt.close();
+        preparedStatement.close();
         con.close();
     }
 
