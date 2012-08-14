@@ -22,9 +22,11 @@
 package org.picketbox.keystore;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.security.Key;
 import java.security.KeyStoreException;
@@ -60,6 +62,8 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
     private String keyTableName = null;
 
+    private String chainTableName = null;
+
     @Override
     public Key engineGetKey(String alias, char[] password) throws NoSuchAlgorithmException, UnrecoverableKeyException {
         try {
@@ -81,7 +85,21 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
     @Override
     public Certificate[] engineGetCertificateChain(String alias) {
-        throw new RuntimeException();
+        try {
+            String selectSQL = "SELECT VALUE FROM " + chainTableName + " WHERE ID = ?";
+            PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
+            preparedStatement.setString(1, alias);
+            ResultSet rs = preparedStatement.executeQuery();
+            while (rs.next()) {
+                String certString = rs.getString("VALUE");
+                byte[] cert = Base64.decode(certString);
+                ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(cert));
+                return (Certificate[]) ois.readObject();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return null;
     }
 
     @Override
@@ -115,7 +133,25 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
     @Override
     public void engineSetKeyEntry(String alias, byte[] key, Certificate[] chain) throws KeyStoreException {
-        throw new RuntimeException();
+        PreparedStatement preparedStatement = null;
+        try {
+            String encodedKey = Base64.encodeBytes(key);
+
+            String insertTableSQL = "INSERT INTO KEYS" + "(ID,VALUE) VALUES" + "(?,?)";
+            preparedStatement = con.prepareStatement(insertTableSQL);
+            preparedStatement.setString(1, "test");
+            preparedStatement.setString(2, encodedKey);
+            preparedStatement.executeUpdate();
+
+            preparedStatement.close();
+            storeCertificateChain(alias, chain);
+        } catch (Exception e) {
+            throw new KeyStoreException(e);
+        } finally {
+            if (preparedStatement != null) {
+                safeClose(preparedStatement);
+            }
+        }
     }
 
     @Override
@@ -212,28 +248,46 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
         }
     }
 
-    void loadDatabase() {
+    private void loadDatabase() {
         KeyStoreDBUtil util = new KeyStoreDBUtil();
         con = util.getConnection();
         certTableName = util.getCertificateTableName();
         keyTableName = util.getKeysTableName();
+        chainTableName = util.getChainTableName();
     }
 
-    void safeClose(Connection conn) {
-        if (conn != null) {
-            try {
-                conn.close();
-            } catch (SQLException ignore) {
-            }
-        }
-    }
-
-    void safeClose(Statement stmt) {
+    private void safeClose(Statement stmt) {
         if (stmt != null) {
             try {
                 stmt.close();
             } catch (SQLException ignore) {
             }
+        }
+    }
+
+    private void storeCertificateChain(String alias, Certificate[] chain) throws KeyStoreException {
+        PreparedStatement preparedStatement = null;
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ObjectOutputStream oos = new ObjectOutputStream(baos);
+            oos.writeObject(chain);
+
+            String encodedChain = Base64.encodeBytes(baos.toByteArray());
+
+            String insertTableSQL = "INSERT INTO CHAIN" + "(ID,VALUE) VALUES" + "(?,?)";
+            preparedStatement = con.prepareStatement(insertTableSQL);
+            preparedStatement.setString(1, "test");
+            preparedStatement.setString(2, encodedChain);
+            preparedStatement.executeUpdate();
+
+            preparedStatement.close();
+        } catch (Exception e) {
+            throw new KeyStoreException(e);
+        } finally {
+            if (preparedStatement != null) {
+                safeClose(preparedStatement);
+            }
+
         }
     }
 }

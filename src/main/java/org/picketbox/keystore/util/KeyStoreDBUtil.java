@@ -36,7 +36,7 @@ public class KeyStoreDBUtil {
 
     private Connection con = null;
 
-    private String certTableName, keyTableName;
+    private String certTableName, keyTableName, chainTableName;
 
     public KeyStoreDBUtil() {
         try {
@@ -55,6 +55,7 @@ public class KeyStoreDBUtil {
 
             certTableName = properties.getProperty("certificates.table");
             keyTableName = properties.getProperty("keys.table");
+            chainTableName = properties.getProperty("chain.table");
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -75,5 +76,9 @@ public class KeyStoreDBUtil {
 
     public String getKeysTableName() {
         return keyTableName;
+    }
+
+    public String getChainTableName() {
+        return chainTableName;
     }
 }

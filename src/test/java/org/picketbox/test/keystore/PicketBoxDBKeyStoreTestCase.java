@@ -120,25 +120,18 @@ public class PicketBoxDBKeyStoreTestCase {
 
     private String dbURL = "jdbc:h2:file:target/test.db";
 
+    private Connection con = null;
+
     @Before
     public void setup() throws Exception {
         // Load the Driver class.
         Class.forName("org.h2.Driver");
-        // If you are using any other database then load the right driver here.
 
         // Create the connection using the static getConnection method
-        Connection con = DriverManager.getConnection(dbURL, "sa", "");
+        con = DriverManager.getConnection(dbURL, "sa", "");
 
-        // Create a Statement class to execute the SQL statement
-        Statement stmt = con.createStatement();
-
-        // Execute the SQL statement and get the results in a Resultset
-        assertTrue(stmt.executeUpdate("create table CERT (ID varchar(255), VALUE varchar(5000))") == 0);
-
-        stmt.close();
-
-        stmt = con.createStatement();
-        assertTrue(stmt.executeUpdate("create table KEYS (ID varchar(255), VALUE varchar(5000))") == 0);
+        dropTables();
+        createTables();
 
         // Insert some data
         InputStream bis = getClass().getClassLoader().getResourceAsStream("cert/servercert.txt");
@@ -172,31 +165,14 @@ public class PicketBoxDBKeyStoreTestCase {
         preparedStatement.executeUpdate();
 
         preparedStatement.close();
-        con.close();
     }
 
     @After
     public void tear() throws Exception {
-        // Load the Driver class.
-        Class.forName("org.h2.Driver");
-        // If you are using any other database then load the right driver here.
-
-        // Create the connection using the static getConnection method
-        Connection con = DriverManager.getConnection(dbURL, "sa", "");
-
-        // Create a Statement class to execute the SQL statement
-        Statement stmt = con.createStatement();
-
-        // Execute the SQL statement and get the results in a Resultset
-        assertTrue(stmt.executeUpdate("drop table CERT") == 0);
-
-        stmt.close();
-
-        stmt = con.createStatement();
-        assertTrue(stmt.executeUpdate("drop table KEYS") == 0);
-
-        stmt.close();
-        con.close();
+        dropTables();
+        if (con != null) {
+            con.close();
+        }
     }
 
     @Test
@@ -216,6 +192,22 @@ public class PicketBoxDBKeyStoreTestCase {
         assertTrue(keystore.isCertificateEntry("test"));
 
         assertNotNull(keystore.getKey("test", null));
+
+        // Let us add certificate chain
+        Certificate[] chain = new Certificate[1];
+        chain[0] = x509;
+
+        PrivateKey key = getPrivateKey();
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ObjectOutputStream oos = new ObjectOutputStream(baos);
+        oos.writeObject(key);
+
+        keystore.setKeyEntry("test", baos.toByteArray(), chain);
+
+        Certificate[] returnedChain = keystore.getCertificateChain("test");
+        assertNotNull(returnedChain);
+        assertTrue(byteEquals(x509.getEncoded(), chain[0].getEncoded()));
     }
 
     private RSAPrivateKey getPrivateKey() throws Exception {
@@ -225,5 +217,51 @@ public class PicketBoxDBKeyStoreTestCase {
         KeyFactory keyFactory = KeyFactory.getInstance("RSA");
         RSAPrivateKeySpec privKeySpec = new RSAPrivateKeySpec(N, D);
         return (RSAPrivateKey) keyFactory.generatePrivate(privKeySpec);
+    }
+
+    private void createTables() throws Exception {
+        assertNotNull(con);
+        execute(con, "create table CERT (ID varchar(255), VALUE varchar(5000))");
+        execute(con, "create table KEYS (ID varchar(255), VALUE varchar(5000))");
+        execute(con, "create table CHAIN (ID varchar(255), VALUE varchar(5000))");
+    }
+
+    private void dropTables() throws Exception {
+        assertNotNull(con);
+        execute(con, "drop table CERT IF EXISTS");
+        execute(con, "drop table KEYS IF EXISTS");
+        execute(con, "drop table CHAIN IF EXISTS");
+    }
+
+    private void execute(Connection con, String str) throws Exception {
+        Statement stmt = con.createStatement();
+        assertTrue(stmt.executeUpdate(str) == 0);
+
+        stmt.close();
+    }
+
+    private boolean byteEquals(byte[] b1, byte[] b2) {
+        // Check if the addresses match
+        if (b1 == b2) {
+            return true;
+        }
+
+        // Check if either one is null
+        if (b1 == null || b2 == null) {
+            return false;
+        }
+
+        // Match on the lengths
+        if (b1.length != b2.length) {
+            return false;
+        }
+
+        // Match each byte
+        int notMatching = 0;
+
+        for (int index = 0; index != b1.length; index++) {
+            notMatching |= (b1[index] ^ b2[index]);
+        }
+        return notMatching == 0;
     }
 }
