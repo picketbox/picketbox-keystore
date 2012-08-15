@@ -200,6 +200,7 @@ public class PicketBoxDBKeyStoreTestCase {
 
     /**
      * Test the keystore
+     *
      * @throws Exception
      */
     @Test

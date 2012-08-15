@@ -21,17 +21,22 @@
  */
 package org.picketbox.keystore;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
+import java.net.URL;
 import java.security.Key;
+import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.KeyStoreSpi;
 import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
 import java.security.UnrecoverableKeyException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
@@ -43,6 +48,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Date;
 import java.util.Enumeration;
+import java.util.Scanner;
 import java.util.Vector;
 
 import org.picketbox.keystore.util.Base64;
@@ -184,7 +190,9 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             preparedStatement.executeUpdate();
 
             preparedStatement.close();
-            storeCertificateChain(alias, chain);
+            if (chain != null) {
+                storeCertificateChain(alias, chain);
+            }
         } catch (Exception e) {
             throw new KeyStoreException(e);
         } finally {
@@ -358,15 +366,61 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
         }
     }
 
+    /**
+     * Check if the salt exists
+     *
+     * @return
+     */
+    public boolean existsSalt() {
+        return getSalt() != null;
+    }
+
+    /**
+     * Check if the master password exists
+     *
+     * @return
+     */
+    public boolean existsMasterPassword() {
+        return getMasterPassword() != null;
+    }
+
+    /**
+     * Store Master Password if not already present
+     *
+     * @param masterPassword
+     */
+    public void storeMasterPassword(char[] masterPassword) {
+        if (getMasterPassword() != null) {
+            throw new RuntimeException("Master Password already present");
+        }
+
+        String salt = getSalt();
+        PreparedStatement preparedStatement = null;
+        try {
+
+            String encodedPass = KeyStoreDBUtil.saltedHmacMD5(salt, (new String(masterPassword).getBytes()));
+
+            String insertTableSQL = "UPDATE " + metadataTableName + " SET PASS = ?";
+
+            preparedStatement = con.prepareStatement(insertTableSQL);
+            preparedStatement.setString(1, encodedPass);
+            preparedStatement.executeUpdate();
+
+            preparedStatement.close();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            if (preparedStatement != null) {
+                safeClose(preparedStatement);
+            }
+        }
+    }
+
     private void loadDatabase(char[] password) {
         if (password == null) {
             throw new IllegalArgumentException("KeyStore Password is null");
         }
-        KeyStoreDBUtil util = new KeyStoreDBUtil();
-        con = util.getConnection();
-        storeTableName = util.getStoreTableName();
-        metadataTableName = util.getMetadataTableName();
-
+        loadDBConnection();
         // Let us evaluate the password
         String salt = getSalt();
         if (salt == null)
@@ -381,6 +435,13 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             throw new RuntimeException(e);
         }
 
+    }
+
+    private void loadDBConnection() {
+        KeyStoreDBUtil util = new KeyStoreDBUtil();
+        con = util.getConnection();
+        storeTableName = util.getStoreTableName();
+        metadataTableName = util.getMetadataTableName();
     }
 
     private void safeClose(Statement stmt) {
@@ -467,7 +528,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
                 if (storedPass == null)
                     return false;
                 return storedPass.equals(KeyStoreDBUtil.saltedHmacMD5(salt, (new String(keypass)).getBytes())); // Atleast one
-                                                                                                                // entry
+                // entry
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -512,5 +573,116 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             throw new RuntimeException(e);
         }
         return false;
+    }
+
+    public static void main(String[] args) throws Exception {
+        PicketBoxDBKeyStore ks = new PicketBoxDBKeyStore();
+        ks.loadDBConnection();
+
+        Scanner scanner = new Scanner(System.in);
+        while (true) {
+            String cmd = "Enter 1: Import KeyPair 2: Check Master Password Exists 3: Check Master Salt Exists";
+            System.out.println(cmd);
+            int choice = scanner.nextInt();
+            switch (choice) {
+                case 1:
+                    String keystoreurl = "";
+                    do {
+                        System.out.println("Enter Keystore URL=");
+                        keystoreurl = readLine();
+                    } while (keystoreurl.isEmpty());
+
+                    String keystorePass = "";
+                    do {
+                        System.out.println("Enter KeyStore Password=");
+                        keystorePass = readPassword();
+                    } while (keystorePass.isEmpty());
+
+                    KeyStore keystore = null;
+                    // Load Keystore
+                    InputStream is = PicketBoxDBKeyStore.class.getClassLoader().getResourceAsStream(keystoreurl);
+                    if (is == null) {
+                        // try URL
+                        try {
+                            URL keyurl = new URL(keystoreurl);
+                            is = keyurl.openStream();
+                        } catch (Exception e) {
+                            // Unable to get to the keystore
+                            throw new RuntimeException("Unable to load keystore:" + keystoreurl);
+                        }
+                    }
+                    if (is != null) {
+                        keystore = KeyStore.getInstance(KeyStore.getDefaultType());
+                        keystore.load(is, keystorePass.toCharArray());
+                        System.out.println("Java JKS KeyStore loaded from " + keystoreurl);
+                    }
+
+                    String alias = "";
+                    do {
+                        System.out.println("Enter alias=");
+                        alias = readLine();
+                    } while (alias.isEmpty());
+
+                    String keyPass = "";
+                    do {
+                        System.out.println("Enter Key Password=");
+                        keyPass = readPassword();
+                    } while (keyPass.isEmpty());
+
+                    if (keystore != null) {
+                        KeyHolder holder = getPrivateKey(keystore, alias, keyPass.toCharArray());
+                        System.out.println("Retrieved Private Key and Certificate from JKS Keystore:" + keystoreurl);
+                        ks.engineSetKeyEntry(alias, holder.privateKey, keyPass.toCharArray(), null);
+                        ks.engineSetCertificateEntry(alias, holder.cert);
+                    }
+
+                    break;
+                case 2:
+                    System.out.println(ks.existsMasterPassword());
+                    break;
+                case 3:
+                    System.out.println(ks.existsSalt());
+                    break;
+                default:
+                    System.exit(0);
+                    break;
+            }
+        }
+
+    }
+
+    private static KeyHolder getPrivateKey(KeyStore keystore, String alias, char[] password) {
+        KeyHolder holder = new KeyHolder();
+        try {
+            // Get private key
+            Key key = keystore.getKey(alias, password);
+            if (key instanceof PrivateKey) {
+                holder.privateKey = key;
+                // Get certificate of public key
+                holder.cert = keystore.getCertificate(alias);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return holder;
+    }
+
+    private static class KeyHolder {
+        private Key privateKey;
+        private Certificate cert;
+    }
+
+    private static String readLine() throws IOException {
+        if (System.console() != null) {
+            return System.console().readLine();
+        }
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+        return reader.readLine();
+    }
+
+    private static String readPassword() throws IOException {
+        if (System.console() != null)
+            return new String(System.console().readPassword());
+        return readLine();
     }
 }
