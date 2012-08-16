@@ -24,6 +24,7 @@ package org.picketbox.keystore;
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -32,6 +33,7 @@ import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.net.URL;
 import java.security.Key;
+import java.security.KeyPair;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.KeyStoreSpi;
@@ -41,6 +43,7 @@ import java.security.UnrecoverableKeyException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -52,6 +55,7 @@ import java.util.Scanner;
 import java.util.Vector;
 
 import org.picketbox.keystore.util.Base64;
+import org.picketbox.keystore.util.CertificateUtil;
 import org.picketbox.keystore.util.KeyStoreDBUtil;
 
 /**
@@ -581,7 +585,9 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
         Scanner scanner = new Scanner(System.in);
         while (true) {
-            String cmd = "Enter 1: Import KeyPair 2: Check Master Password Exists 3: Check Master Salt Exists";
+            String cmd = "Enter 1: Import KeyPair " + "2: Create a KeyPair and Certificate " + "3: Create CSR "
+                    + "4: Check Master Password Exists " + "5: Check Master Salt Exists";
+
             System.out.println(cmd);
             int choice = scanner.nextInt();
             switch (choice) {
@@ -638,9 +644,34 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
                     break;
                 case 2:
-                    System.out.println(ks.existsMasterPassword());
+                    generateCertificate(ks);
                     break;
                 case 3:
+                    alias = "";
+                    do {
+                        System.out.println("Enter alias=");
+                        alias = readLine();
+                    } while (alias.isEmpty());
+                    keyPass = "";
+                    do {
+                        System.out.println("Enter Key Password=");
+                        keyPass = readPassword();
+                    } while (keyPass.isEmpty());
+                    String csrFile = "";
+                    do {
+                        System.out.println("Enter filename to store CSR=");
+                        csrFile = readLine();
+                    } while (csrFile.isEmpty());
+                    FileOutputStream fos = new FileOutputStream(csrFile);
+
+                    generateCSR(ks, alias, keyPass.toCharArray(), fos);
+                    fos.close();
+
+                    break;
+                case 4:
+                    System.out.println(ks.existsMasterPassword());
+                    break;
+                case 5:
                     System.out.println(ks.existsSalt());
                     break;
                 default:
@@ -649,6 +680,55 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         }
 
+    }
+
+    private static void generateCertificate(PicketBoxDBKeyStore ks) throws Exception {
+        CertificateUtil util = new CertificateUtil();
+        String alias = "";
+        do {
+            System.out.println("Enter alias=");
+            alias = readLine();
+        } while (alias.isEmpty());
+
+        String dn = "";
+        do {
+            System.out.println("Enter Subject DN=");
+            dn = readLine();
+        } while (dn.isEmpty());
+
+        String no = "";
+        do {
+            System.out.println("Enter Number Of Days Of Validity=");
+            no = readLine();
+        } while (no.isEmpty());
+
+        int numberOfDays = Integer.parseInt(no);
+
+        String keyPass = "";
+        do {
+            System.out.println("Enter Key Password=");
+            keyPass = readPassword();
+        } while (keyPass.isEmpty());
+
+        KeyPair pair = util.generateKeyPair("RSA");
+        Certificate cert = util.createX509V1Certificate(pair, numberOfDays, dn);
+
+        if (ks != null) {
+            ks.engineSetKeyEntry(alias, pair.getPrivate(), keyPass.toCharArray(), null);
+            ks.engineSetCertificateEntry(alias, cert);
+        }
+    }
+
+    private static void generateCSR(PicketBoxDBKeyStore ks, String alias, char[] keyPass, FileOutputStream fos)
+            throws Exception {
+        CertificateUtil util = new CertificateUtil();
+        Certificate cert = ks.engineGetCertificate(alias);
+        PrivateKey privateKey = (PrivateKey) ks.engineGetKey(alias, keyPass);
+        KeyPair keyPair = new KeyPair(cert.getPublicKey(), privateKey);
+        X509Certificate x509 = (X509Certificate) cert;
+        byte[] csr = util.createCSR(x509.getSubjectDN().getName(), keyPair);
+        String pem = util.getPEM(csr);
+        fos.write(pem.getBytes());
     }
 
     private static KeyHolder getPrivateKey(KeyStore keystore, String alias, char[] password) {
