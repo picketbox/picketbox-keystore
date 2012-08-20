@@ -60,6 +60,13 @@
          <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>org.picketbox.keystore.PicketBoxDBKeyStore</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
             <executions>
                <execution>
                   <goals>
@@ -67,7 +74,7 @@
                   </goals>
                </execution>
             </executions>
-         </plugin>
+         </plugin> 
          <!-- Enable checkstyle execution -->
          <plugin>
             <groupId>org.apache.maven.plugins</groupId>

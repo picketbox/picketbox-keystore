@@ -389,6 +389,37 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
     }
 
     /**
+     * Store Master Salt if not already present
+     *
+     * @param salt
+     */
+    public void storeMasterSalt(String salt) {
+        if (existsSalt()) {
+            throw new RuntimeException("Master Salt already present");
+        }
+
+        System.out.println("Storing Master Salt in the DB");
+
+        PreparedStatement preparedStatement = null;
+        try {
+            String insertTableSQL = "INSERT INTO " + metadataTableName + " (SALT) VALUES(?)";
+
+            preparedStatement = con.prepareStatement(insertTableSQL);
+            preparedStatement.setString(1, salt);
+            int result = preparedStatement.executeUpdate();
+
+            preparedStatement.close();
+            System.out.println("Stored Master Salt in the DB [" + result + " rows affected] ");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            if (preparedStatement != null) {
+                safeClose(preparedStatement);
+            }
+        }
+    }
+
+    /**
      * Store Master Password if not already present
      *
      * @param masterPassword
@@ -585,22 +616,26 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
         Scanner scanner = new Scanner(System.in);
         while (true) {
-            String cmd = "Enter 1: Import KeyPair " + "2: Create a KeyPair and Certificate " + "3: Create CSR "
-                    + "4: Check Master Password Exists " + "5: Check Master Salt Exists";
+            String cmd = "\n\n\n Enter 1: Import KeyPair \n" + "2: Create a KeyPair and Certificate  \n" + "3: Create CSR  \n"
+                    + "4: Check Master Password Exists \n" + "5: Check Master Salt Exists  \n" + "6: Add Master Salt  \n"
+                    + "7: Add Master Password  \n" + "8: Exit";
 
             System.out.println(cmd);
+
+            System.out.print("Enter Your Choice:");
+
             int choice = scanner.nextInt();
             switch (choice) {
                 case 1:
                     String keystoreurl = "";
                     do {
-                        System.out.println("Enter Keystore URL=");
+                        System.out.print("Enter Keystore URL=");
                         keystoreurl = readLine();
                     } while (keystoreurl.isEmpty());
 
                     String keystorePass = "";
                     do {
-                        System.out.println("Enter KeyStore Password=");
+                        System.out.print("Enter KeyStore Password=");
                         keystorePass = readPassword();
                     } while (keystorePass.isEmpty());
 
@@ -625,13 +660,13 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
                     String alias = "";
                     do {
-                        System.out.println("Enter alias=");
+                        System.out.print("Enter alias=");
                         alias = readLine();
                     } while (alias.isEmpty());
 
                     String keyPass = "";
                     do {
-                        System.out.println("Enter Key Password=");
+                        System.out.print("Enter Key Password=");
                         keyPass = readPassword();
                     } while (keyPass.isEmpty());
 
@@ -649,19 +684,22 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
                 case 3:
                     alias = "";
                     do {
-                        System.out.println("Enter alias=");
+                        System.out.print("Enter alias=");
                         alias = readLine();
                     } while (alias.isEmpty());
                     keyPass = "";
                     do {
-                        System.out.println("Enter Key Password=");
+                        System.out.print("Enter Key Password=");
                         keyPass = readPassword();
                     } while (keyPass.isEmpty());
                     String csrFile = "";
                     do {
-                        System.out.println("Enter filename to store CSR=");
+                        System.out.print("Enter filename to store CSR=");
                         csrFile = readLine();
                     } while (csrFile.isEmpty());
+
+                    System.out.println("Storing CSR into " + csrFile);
+
                     FileOutputStream fos = new FileOutputStream(csrFile);
 
                     generateCSR(ks, alias, keyPass.toCharArray(), fos);
@@ -669,12 +707,19 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
                     break;
                 case 4:
-                    System.out.println(ks.existsMasterPassword());
+                    System.out.println("Master Password Exists=" + ks.existsMasterPassword());
                     break;
                 case 5:
-                    System.out.println(ks.existsSalt());
+                    System.out.println("Master SALT Exists=" + ks.existsSalt());
+                    break;
+                case 6: // Add master password
+                    addMasterSalt(ks);
+                    break;
+                case 7: // Add master password
+                    addMasterPassword(ks);
                     break;
                 default:
+                    System.out.println("Good Bye!");
                     System.exit(0);
                     break;
             }
@@ -682,23 +727,68 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
     }
 
+    private static void addMasterPassword(PicketBoxDBKeyStore ks) throws Exception {
+        if (ks.existsSalt() == false) {
+            System.out.println("WARNING :: Master Salt Does Not Exist. Please contact your DB Administrator");
+            return;
+        }
+        String masterPassword = "";
+        do {
+            System.out.print("Enter Master Password=");
+            masterPassword = readPassword();
+        } while (masterPassword.isEmpty());
+        String masterPassword2 = "";
+        do {
+            System.out.print("Enter Master Password Again=");
+            masterPassword2 = readPassword();
+        } while (masterPassword2.isEmpty());
+        if (masterPassword.equals(masterPassword2) == false) {
+            System.out.print("Sorry. Master Password Values Do Not Match");
+            return;
+        }
+        ks.storeMasterPassword(masterPassword.toCharArray());
+        System.out.println("Master Password stored in DB");
+    }
+
+    private static void addMasterSalt(PicketBoxDBKeyStore ks) throws Exception {
+        if (ks.existsSalt()) {
+            System.out.println("WARNING :: Master Salt Already Exists. Please contact your DB Administrator");
+            return;
+        }
+        String masterSalt = "";
+        do {
+            System.out.print("Enter Master Salt=");
+            masterSalt = readLine();
+        } while (masterSalt.isEmpty());
+        String masterSalt2 = "";
+        do {
+            System.out.print("Enter Master Salt Again=");
+            masterSalt2 = readLine();
+        } while (masterSalt2.isEmpty());
+        if (masterSalt.equals(masterSalt2) == false) {
+            System.out.print("Sorry. Master Salt Values Do Not Match");
+            return;
+        }
+        ks.storeMasterSalt(masterSalt);
+    }
+
     private static void generateCertificate(PicketBoxDBKeyStore ks) throws Exception {
         CertificateUtil util = new CertificateUtil();
         String alias = "";
         do {
-            System.out.println("Enter alias=");
+            System.out.print("Enter alias=");
             alias = readLine();
         } while (alias.isEmpty());
 
         String dn = "";
         do {
-            System.out.println("Enter Subject DN=");
+            System.out.print("Enter Subject DN=");
             dn = readLine();
         } while (dn.isEmpty());
 
         String no = "";
         do {
-            System.out.println("Enter Number Of Days Of Validity=");
+            System.out.print("Enter Number Of Days Of Validity=");
             no = readLine();
         } while (no.isEmpty());
 
@@ -706,7 +796,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
         String keyPass = "";
         do {
-            System.out.println("Enter Key Password=");
+            System.out.print("Enter Key Password=");
             keyPass = readPassword();
         } while (keyPass.isEmpty());
 
@@ -729,6 +819,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
         byte[] csr = util.createCSR(x509.getSubjectDN().getName(), keyPair);
         String pem = util.getPEM(csr);
         fos.write(pem.getBytes());
+        System.out.println("CSR stored");
     }
 
     private static KeyHolder getPrivateKey(KeyStore keystore, String alias, char[] password) {
