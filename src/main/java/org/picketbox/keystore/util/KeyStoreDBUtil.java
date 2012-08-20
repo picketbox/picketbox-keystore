@@ -47,6 +47,8 @@ public class KeyStoreDBUtil {
     public KeyStoreDBUtil() {
         try {
             InputStream is = getClass().getClassLoader().getResourceAsStream(PROPFILE);
+            if (is == null)
+                throw new IllegalStateException(PROPFILE + " not found");
             // We just load a custom properties or xml file
             Properties properties = new Properties();
             properties.load(is);
@@ -58,6 +60,8 @@ public class KeyStoreDBUtil {
             // Create the connection using the static getConnection method
             con = DriverManager.getConnection(properties.getProperty("connection.url"),
                     properties.getProperty("connection.username"), properties.getProperty("connection.password"));
+
+            con.setAutoCommit(true);
 
             storeTableName = properties.getProperty("store.table");
             metadataTableName = properties.getProperty("metadata.table");
