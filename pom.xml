@@ -40,9 +40,6 @@
       <name>JBoss Inc.</name>
       <url>http://www.jboss.org</url>
    </organization>
-   <properties>
-      <picketbox.http.version>5.0.0.1.0.0-SNAPSHOT</picketbox.http.version>
-   </properties>
    <build>
       <plugins>
          <plugin>
