@@ -616,7 +616,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
         Scanner scanner = new Scanner(System.in);
         while (true) {
-            String cmd = "\n\n\n Enter 1: Import KeyPair \n" + "2: Create a KeyPair and Certificate  \n" + "3: Create CSR  \n"
+            String cmd = "\n\n\nEnter 1: Import KeyPair \n" + "2: Create a KeyPair and Certificate  \n" + "3: Create CSR  \n"
                     + "4: Check Master Password Exists \n" + "5: Check Master Salt Exists  \n" + "6: Add Master Salt  \n"
                     + "7: Add Master Password  \n" + "8: Exit";
 
@@ -627,17 +627,9 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             int choice = scanner.nextInt();
             switch (choice) {
                 case 1:
-                    String keystoreurl = "";
-                    do {
-                        System.out.print("Enter Keystore URL=");
-                        keystoreurl = readLine();
-                    } while (keystoreurl.isEmpty());
+                    String keystoreurl = getNonEmptyString("Enter Keystore URL=");
 
-                    String keystorePass = "";
-                    do {
-                        System.out.print("Enter KeyStore Password=");
-                        keystorePass = readPassword();
-                    } while (keystorePass.isEmpty());
+                    String keystorePass = getNonEmptyPasswordString("Enter KeyStore Password=");
 
                     KeyStore keystore = null;
                     // Load Keystore
@@ -658,17 +650,9 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
                         System.out.println("Java JKS KeyStore loaded from " + keystoreurl);
                     }
 
-                    String alias = "";
-                    do {
-                        System.out.print("Enter alias=");
-                        alias = readLine();
-                    } while (alias.isEmpty());
+                    String alias = getNonEmptyString("Enter alias=");
 
-                    String keyPass = "";
-                    do {
-                        System.out.print("Enter Key Password=");
-                        keyPass = readPassword();
-                    } while (keyPass.isEmpty());
+                    String keyPass = getNonEmptyPasswordString("Enter Key Password=");
 
                     if (keystore != null) {
                         KeyHolder holder = getPrivateKey(keystore, alias, keyPass.toCharArray());
@@ -682,21 +666,11 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
                     generateCertificate(ks);
                     break;
                 case 3:
-                    alias = "";
-                    do {
-                        System.out.print("Enter alias=");
-                        alias = readLine();
-                    } while (alias.isEmpty());
-                    keyPass = "";
-                    do {
-                        System.out.print("Enter Key Password=");
-                        keyPass = readPassword();
-                    } while (keyPass.isEmpty());
-                    String csrFile = "";
-                    do {
-                        System.out.print("Enter filename to store CSR=");
-                        csrFile = readLine();
-                    } while (csrFile.isEmpty());
+                    alias = getNonEmptyString("Enter alias=");
+
+                    keyPass = getNonEmptyPasswordString("Enter Key Password=");
+
+                    String csrFile = getNonEmptyString("Enter filename to store CSR=");
 
                     System.out.println("Storing CSR into " + csrFile);
 
@@ -732,16 +706,9 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             System.out.println("WARNING :: Master Salt Does Not Exist. Please contact your DB Administrator");
             return;
         }
-        String masterPassword = "";
-        do {
-            System.out.print("Enter Master Password=");
-            masterPassword = readPassword();
-        } while (masterPassword.isEmpty());
-        String masterPassword2 = "";
-        do {
-            System.out.print("Enter Master Password Again=");
-            masterPassword2 = readPassword();
-        } while (masterPassword2.isEmpty());
+        String masterPassword = getNonEmptyPasswordString("Enter Master Password=");
+        String masterPassword2 = getNonEmptyPasswordString("Enter Master Password Again=");
+
         if (masterPassword.equals(masterPassword2) == false) {
             System.out.print("Sorry. Master Password Values Do Not Match");
             return;
@@ -755,21 +722,32 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             System.out.println("WARNING :: Master Salt Already Exists. Please contact your DB Administrator");
             return;
         }
-        String masterSalt = "";
-        do {
-            System.out.print("Enter Master Salt=");
-            masterSalt = readLine();
-        } while (masterSalt.isEmpty());
-        String masterSalt2 = "";
-        do {
-            System.out.print("Enter Master Salt Again=");
-            masterSalt2 = readLine();
-        } while (masterSalt2.isEmpty());
+        String masterSalt = getNonEmptyString("Enter Master Salt=");
+        String masterSalt2 = getNonEmptyString("Enter Master Salt Again=");
+
         if (masterSalt.equals(masterSalt2) == false) {
             System.out.print("Sorry. Master Salt Values Do Not Match");
             return;
         }
         ks.storeMasterSalt(masterSalt);
+    }
+
+    private static String getNonEmptyString(String cmd) throws Exception {
+        String result = "";
+        do {
+            System.out.print(cmd);
+            result = readLine();
+        } while (result.isEmpty());
+        return result;
+    }
+
+    private static String getNonEmptyPasswordString(String cmd) throws Exception {
+        String result = "";
+        do {
+            System.out.print(cmd);
+            result = readPassword();
+        } while (result.isEmpty());
+        return result;
     }
 
     private static void generateCertificate(PicketBoxDBKeyStore ks) throws Exception {
@@ -807,6 +785,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             ks.engineSetKeyEntry(alias, pair.getPrivate(), keyPass.toCharArray(), null);
             ks.engineSetCertificateEntry(alias, cert);
         }
+        System.out.println("KeyPair/Certificate created and stored as alias=" + alias);
     }
 
     private static void generateCSR(PicketBoxDBKeyStore ks, String alias, char[] keyPass, FileOutputStream fos)
