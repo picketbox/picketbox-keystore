@@ -96,7 +96,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             throw new RuntimeException(e);
         } catch (ClassNotFoundException e) {
             throw new RuntimeException(e);
-        } finally{
+        } finally {
             safeClose(preparedStatement);
         }
 
@@ -119,7 +119,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
-        } finally{
+        } finally {
             safeClose(preparedStatement);
         }
         return null;
@@ -162,7 +162,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
-        } finally{
+        } finally {
             safeClose(preparedStatement);
         }
         return null;
@@ -330,7 +330,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
-        } finally{
+        } finally {
             safeClose(preparedStatement);
         }
         return false;
@@ -349,7 +349,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
-        } finally{
+        } finally {
             safeClose(preparedStatement);
         }
         return false;
@@ -370,7 +370,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
-        } finally{
+        } finally {
             safeClose(preparedStatement);
         }
         return null;
@@ -519,7 +519,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
-        } finally{
+        } finally {
             safeClose(statement);
         }
         return null;
@@ -591,7 +591,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
-        } finally{
+        } finally {
             safeClose(preparedStatement);
         }
         return false;
@@ -633,7 +633,7 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
-        } finally{
+        } finally {
             safeClose(preparedStatement);
         }
         return false;
