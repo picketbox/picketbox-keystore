@@ -73,13 +73,13 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
     @Override
     public Key engineGetKey(String alias, char[] password) throws NoSuchAlgorithmException, UnrecoverableKeyException {
-
+        PreparedStatement preparedStatement = null;
         try {
             if (matchKeyPass(alias, password) == false) {
                 throw new UnrecoverableKeyException("Key Password does not match");
             }
             String selectSQL = "SELECT KEY FROM " + storeTableName + " WHERE ID = ?";
-            PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
+            preparedStatement = con.prepareStatement(selectSQL);
             preparedStatement.setString(1, alias);
             ResultSet rs = preparedStatement.executeQuery();
             while (rs.next()) {
@@ -96,6 +96,8 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             throw new RuntimeException(e);
         } catch (ClassNotFoundException e) {
             throw new RuntimeException(e);
+        } finally{
+            safeClose(preparedStatement);
         }
 
         return null;
@@ -103,9 +105,10 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
     @Override
     public Certificate[] engineGetCertificateChain(String alias) {
+        PreparedStatement preparedStatement = null;
         try {
             String selectSQL = "SELECT CHAIN FROM " + storeTableName + " WHERE ID = ?";
-            PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
+            preparedStatement = con.prepareStatement(selectSQL);
             preparedStatement.setString(1, alias);
             ResultSet rs = preparedStatement.executeQuery();
             while (rs.next()) {
@@ -116,15 +119,18 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
+        } finally{
+            safeClose(preparedStatement);
         }
         return null;
     }
 
     @Override
     public Certificate engineGetCertificate(String alias) {
+        PreparedStatement preparedStatement = null;
         try {
             String selectSQL = "SELECT CERT FROM " + storeTableName + " WHERE ID = ?";
-            PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
+            preparedStatement = con.prepareStatement(selectSQL);
             preparedStatement.setString(1, alias);
             ResultSet rs = preparedStatement.executeQuery();
             while (rs.next()) {
@@ -135,15 +141,18 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
+        } finally {
+            safeClose(preparedStatement);
         }
         return null;
     }
 
     @Override
     public Date engineGetCreationDate(String alias) {
+        PreparedStatement preparedStatement = null;
         try {
             String selectSQL = "SELECT CREATED FROM " + storeTableName + " WHERE ID = ?";
-            PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
+            preparedStatement = con.prepareStatement(selectSQL);
             preparedStatement.setString(1, alias);
             ResultSet rs = preparedStatement.executeQuery();
             while (rs.next()) {
@@ -153,6 +162,8 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
+        } finally{
+            safeClose(preparedStatement);
         }
         return null;
     }
@@ -308,9 +319,10 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
 
     @Override
     public boolean engineIsKeyEntry(String alias) {
+        PreparedStatement preparedStatement = null;
         try {
             String selectSQL = "SELECT KEY FROM " + storeTableName + " WHERE ID = ?";
-            PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
+            preparedStatement = con.prepareStatement(selectSQL);
             preparedStatement.setString(1, alias);
             ResultSet rs = preparedStatement.executeQuery();
             while (rs.next()) {
@@ -318,15 +330,18 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
+        } finally{
+            safeClose(preparedStatement);
         }
         return false;
     }
 
     @Override
     public boolean engineIsCertificateEntry(String alias) {
+        PreparedStatement preparedStatement = null;
         try {
             String selectSQL = "SELECT CERT FROM " + storeTableName + " WHERE ID = ?";
-            PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
+            preparedStatement = con.prepareStatement(selectSQL);
             preparedStatement.setString(1, alias);
             ResultSet rs = preparedStatement.executeQuery();
             while (rs.next()) {
@@ -334,15 +349,18 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
+        } finally{
+            safeClose(preparedStatement);
         }
         return false;
     }
 
     @Override
     public String engineGetCertificateAlias(Certificate cert) {
+        PreparedStatement preparedStatement = null;
         try {
             String selectSQL = "SELECT ID FROM " + storeTableName + " WHERE CERT = ?";
-            PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
+            preparedStatement = con.prepareStatement(selectSQL);
             String encoded = Base64.encodeBytes(cert.getEncoded());
 
             preparedStatement.setString(1, encoded);
@@ -352,6 +370,8 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
+        } finally{
+            safeClose(preparedStatement);
         }
         return null;
     }
@@ -489,15 +509,18 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
     }
 
     private String getSalt() {
+        Statement statement = null;
         try {
             String selectSQL = "SELECT SALT FROM " + metadataTableName;
-            Statement statement = con.createStatement();
+            statement = con.createStatement();
             ResultSet rs = statement.executeQuery(selectSQL);
             while (rs.next()) {
                 return rs.getString("SALT");
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
+        } finally{
+            safeClose(statement);
         }
         return null;
     }
@@ -552,10 +575,11 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
     }
 
     private boolean matchKeyPass(String alias, char[] keypass) throws KeyStoreException {
+        PreparedStatement preparedStatement = null;
         try {
             String salt = getSalt();
             String selectSQL = "SELECT KEYPASS FROM " + storeTableName + " WHERE ID =?";
-            PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
+            preparedStatement = con.prepareStatement(selectSQL);
             preparedStatement.setString(1, alias);
             ResultSet rs = preparedStatement.executeQuery();
             while (rs.next()) {
@@ -567,6 +591,8 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
+        } finally{
+            safeClose(preparedStatement);
         }
         return false;
     }
@@ -596,9 +622,10 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
     }
 
     private boolean checkRowExists(String alias) throws Exception {
+        PreparedStatement preparedStatement = null;
         try {
             String selectSQL = "SELECT ID FROM " + storeTableName + " WHERE ID = ?";
-            PreparedStatement preparedStatement = con.prepareStatement(selectSQL);
+            preparedStatement = con.prepareStatement(selectSQL);
             preparedStatement.setString(1, alias);
             ResultSet rs = preparedStatement.executeQuery();
             while (rs.next()) {
@@ -606,6 +633,8 @@ public class PicketBoxDBKeyStore extends KeyStoreSpi {
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
+        } finally{
+            safeClose(preparedStatement);
         }
         return false;
     }
